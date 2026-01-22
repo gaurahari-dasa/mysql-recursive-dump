@@ -25,7 +25,7 @@ WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND REFERENCED_TABLE_NAME IS
 - **Proper escaping**: Custom `sql_escape()` handles NULL, numbers, and strings with single quotes
 
 ### Dependency Resolution
-Recursive DFS ensures parent tables are dumped before children:
+Recursive DFS ensures parent tables are dumped before children, but only if foreign key columns contain non-null values:
 ```python
 def resolve_recursive_dependencies(conn, start_table):
     visited = set()
@@ -34,7 +34,9 @@ def resolve_recursive_dependencies(conn, start_table):
         if table in visited: return
         visited.add(table)
         parents = get_foreign_key_parents(conn, table)
-        for p in parents: dfs(p)
+        for p, fk_col in parents:
+            if has_non_null_fk_values(conn, table, fk_col):
+                dfs(p)
         order.append(table)
     dfs(start_table)
     return order

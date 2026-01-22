@@ -21,11 +21,11 @@ def connect_db(cfg):
 
 def get_foreign_key_parents(conn, table):
     """
-    Returns a list of tables referenced by given table (i.e., parent tables).
+    Returns a list of tuples (referenced_table, fk_column) for foreign keys from given table.
     """
     q = """
         SELECT
-            REFERENCED_TABLE_NAME
+            REFERENCED_TABLE_NAME, COLUMN_NAME
         FROM information_schema.KEY_COLUMN_USAGE
         WHERE TABLE_SCHEMA = DATABASE()
           AND TABLE_NAME = %s
@@ -33,7 +33,17 @@ def get_foreign_key_parents(conn, table):
     """
     cur = conn.cursor()
     cur.execute(q, (table,))
-    return [row[0] for row in cur.fetchall()]
+    return [(row[0], row[1]) for row in cur.fetchall()]
+
+
+def has_non_null_fk_values(conn, table, fk_column):
+    """
+    Checks if the foreign key column has any non-null values in the table.
+    """
+    q = f"SELECT 1 FROM `{table}` WHERE `{fk_column}` IS NOT NULL LIMIT 1"
+    cur = conn.cursor()
+    cur.execute(q)
+    return cur.fetchone() is not None
 
 
 def get_primary_key(conn, table):
@@ -107,7 +117,8 @@ def dump_table(conn, table):
 def resolve_recursive_dependencies(conn, start_table):
     """
     Returns a list of all tables referenced by start_table recursively,
-    including the start table itself. Order is ensured so parents come first.
+    including the start table itself. Only includes parent tables if their FK columns have non-null values.
+    Order is ensured so parents come first.
     """
     visited = set()
     order = []
@@ -118,8 +129,9 @@ def resolve_recursive_dependencies(conn, start_table):
         visited.add(table)
 
         parents = get_foreign_key_parents(conn, table)
-        for p in parents:
-            dfs(p)
+        for p, fk_col in parents:
+            if has_non_null_fk_values(conn, table, fk_col):
+                dfs(p)
 
         order.append(table)
 
